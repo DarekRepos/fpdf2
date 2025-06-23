@@ -9,6 +9,7 @@ in non-backward-compatible ways.
 
 from numbers import Number
 from typing import NamedTuple, Any, List, Optional, Union, Sequence
+from uuid import uuid4
 
 from .enums import Align, CharVPos, TextDirection, WrapMode
 from .errors import FPDFException
@@ -30,8 +31,8 @@ BREAKING_SPACE_SYMBOLS = [
     "\u2006",  # | SIX-PER-EM SPACE
     "\u2008",  # | PUNCTUATION SPACE
     "\u2009",  # | THIN SPACE
-    "\u200A",  # | HAIR SPACE
-    "\u205F",  # | MEDIUM MATHEMATICAL SPACE
+    "\u200a",  # | HAIR SPACE
+    "\u205f",  # | MEDIUM MATHEMATICAL SPACE
     "\u3000",  # | IDEOGRAPHIC SPACE
     "\u0009",  # | TAB
 ]
@@ -121,6 +122,10 @@ class Fragment:
     @property
     def underline(self):
         return self.graphics_state["underline"]
+
+    @property
+    def strikethrough(self):
+        return self.graphics_state["strikethrough"]
 
     @property
     def draw_color(self):
@@ -233,6 +238,14 @@ class Fragment:
             else:
                 w += char_spacing * (char_len - 1)
         return w / self.k
+
+    def has_same_style(self, other: "Fragment"):
+        """Returns if 2 fragments are equivalent other than the characters/string"""
+        return (
+            self.graphics_state == other.graphics_state
+            and self.k == other.k
+            and isinstance(other, self.__class__)
+        )
 
     def get_character_width(self, character: str, print_sh=False, initial_cs=True):
         """
@@ -350,6 +363,50 @@ class Fragment:
         return ret
 
 
+class TotalPagesSubstitutionFragment(Fragment):
+    """
+    A special type of text fragment that represents a placeholder for the total number of pages
+    in a PDF document.
+
+    A placeholder will be generated during the initial content rendering phase of a PDF document.
+    This placeholder is later replaced by the total number of pages in the document when the final
+    output is being produced.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.uuid = uuid4()
+
+    def get_placeholder_string(self):
+        """
+        This method returns a placeholder string containing a universally unique identifier (UUID4),
+        ensuring that the placeholder is distinct and does not conflict with other placeholders
+        within the document.
+        """
+        return f"::placeholder:{self.uuid}::"
+
+    def render_pdf_text(self, *args, **kwargs):
+        """
+        This method is invoked during the page content rendering phase, which is common to all
+        `Fragment` instances. It stores the provided arguments and keyword arguments to preserve
+        the necessary information and graphic state for the final substitution rendering.
+
+        The method then returns the unique placeholder string.
+        """
+        self._render_args = args
+        self._render_kwargs = kwargs
+        return self.get_placeholder_string()
+
+    def render_text_substitution(self, replacement_text: str):
+        """
+        This method is invoked at the output phase. It calls `render_pdf_text()` from the superclass
+        to render the fragment with the preserved rendering state (stored in `_render_args` and `_render_kwargs`)
+        and insert the final text in place of the placeholder.
+        """
+        self.characters = list(replacement_text)
+        return super().render_pdf_text(*self._render_args, **self._render_kwargs)
+
+
 class TextLine(NamedTuple):
     fragments: tuple
     text_width: float
@@ -359,6 +416,7 @@ class TextLine(NamedTuple):
     max_width: float
     trailing_nl: bool = False
     trailing_form_feed: bool = False
+    indent: float = 0
 
     def get_ordered_fragments(self):
         if not self.fragments:
@@ -366,7 +424,7 @@ class TextLine(NamedTuple):
         directional_runs = []
         direction = None
         for fragment in self.fragments:
-            if fragment.fragment_direction == direction:
+            if direction is not None and fragment.fragment_direction == direction:
                 directional_runs[-1].append(fragment)
             else:
                 directional_runs.append([fragment])
@@ -407,7 +465,7 @@ class HyphenHint(NamedTuple):
 
 
 class CurrentLine:
-    def __init__(self, max_width: float, print_sh: bool = False):
+    def __init__(self, max_width: float, print_sh: bool = False, indent: float = 0):
         """
         Per-line text fragment management for use by MultiLineBreak.
             Args:
@@ -416,6 +474,7 @@ class CurrentLine:
         """
         self.max_width = max_width
         self.print_sh = print_sh
+        self.indent = indent
         self.fragments: List[Fragment] = []
         self.height = 0
         self.number_of_spaces = 0
@@ -426,9 +485,9 @@ class CurrentLine:
         #     class attributes (`width`, `fragments`)
         #     is used for this purpose
         # 2 - position of last inserted space
-        #     SpaceHint is used fo this purpose.
+        #     SpaceHint is used for this purpose.
         # 3 - position of last inserted soft-hyphen
-        #     HyphenHint is used fo this purpose.
+        #     HyphenHint is used for this purpose.
         # The purpose of multiple positions tracking - to have an ability
         # to break in multiple places, depending on condition.
         self.space_break_hint = None
@@ -445,8 +504,7 @@ class CurrentLine:
         self,
         character: str,
         character_width: float,
-        graphics_state: dict,
-        k: float,
+        original_fragment: Fragment,
         original_fragment_index: int,
         original_character_index: int,
         height: float,
@@ -455,16 +513,29 @@ class CurrentLine:
         assert character != NEWLINE
         self.height = height
         if not self.fragments:
-            self.fragments.append(Fragment("", graphics_state, k, url))
+            self.fragments.append(
+                original_fragment.__class__(
+                    characters="",
+                    graphics_state=original_fragment.graphics_state,
+                    k=original_fragment.k,
+                    link=url,
+                )
+            )
 
         # characters are expected to be grouped into fragments by font and
         # character attributes. If the last existing fragment doesn't match
         # the properties of the pending character -> add a new fragment.
-        elif (
-            graphics_state != self.fragments[-1].graphics_state
-            or k != self.fragments[-1].k
-        ):
-            self.fragments.append(Fragment("", graphics_state, k, url))
+        elif isinstance(
+            original_fragment, Fragment
+        ) and not original_fragment.has_same_style(self.fragments[-1]):
+            self.fragments.append(
+                original_fragment.__class__(
+                    characters="",
+                    graphics_state=original_fragment.graphics_state,
+                    k=original_fragment.k,
+                    link=url,
+                )
+            )
         active_fragment = self.fragments[-1]
 
         if character in BREAKING_SPACE_SYMBOLS_STR:
@@ -491,8 +562,8 @@ class CurrentLine:
                 self.number_of_spaces,
                 HYPHEN,
                 character_width,
-                graphics_state,
-                k,
+                original_fragment.graphics_state,
+                original_fragment.k,
             )
 
         if character != SOFT_HYPHEN or self.print_sh:
@@ -532,9 +603,10 @@ class CurrentLine:
             number_of_spaces=self.number_of_spaces,
             align=align,
             height=self.height,
-            max_width=self.max_width,
+            max_width=self.max_width - self.indent,
             trailing_nl=trailing_nl,
             trailing_form_feed=trailing_form_feed,
+            indent=self.indent,
         )
 
     def automatic_break_possible(self):
@@ -550,8 +622,7 @@ class CurrentLine:
             self.add_character(
                 self.hyphen_break_hint.curchar,
                 self.hyphen_break_hint.curchar_width,
-                self.hyphen_break_hint.graphics_state,
-                self.hyphen_break_hint.k,
+                self.hyphen_break_hint,
                 self.hyphen_break_hint.original_fragment_index,
                 self.hyphen_break_hint.original_character_index,
                 self.height,
@@ -580,6 +651,7 @@ class MultiLineBreak:
         wrapmode: WrapMode = WrapMode.WORD,
         line_height: float = 1.0,
         skip_leading_spaces: bool = False,
+        first_line_indent: float = 0,
     ):
         """Accept text as Fragments, to be split into individual lines depending
         on line width and text height.
@@ -601,6 +673,7 @@ class MultiLineBreak:
                 size changing the vertical space occupied by a line of text. Default 1.0.
             skip_leading_spaces (bool, optional): On each line, any space characters
                 at the beginning will be skipped. Default value: False.
+            first_line_indent (float, optional): left spacing before first line of text in paragraph.
         """
 
         self.fragments = fragments
@@ -617,6 +690,8 @@ class MultiLineBreak:
         self.fragment_index = 0
         self.character_index = 0
         self.idx_last_forced_break = None
+        self.first_line_indent = first_line_indent
+        self._is_first_line = True
 
     # pylint: disable=too-many-return-statements
     def get_line(self):
@@ -631,10 +706,16 @@ class MultiLineBreak:
 
         max_width = self.get_width(current_font_height)
         # The full max width will be passed on via TextLine to FPDF._render_styled_text_line().
-        current_line = CurrentLine(max_width=max_width, print_sh=self.print_sh)
+        current_line = CurrentLine(
+            max_width=max_width,
+            print_sh=self.print_sh,
+            indent=self.first_line_indent if self._is_first_line else 0,
+        )
         # For line wrapping we need to use the reduced width.
         for margin in self.margins:
             max_width -= margin
+        if self._is_first_line:
+            max_width -= self.first_line_indent
 
         if self.skip_leading_spaces:
             # write_html() with TextColumns uses this, since it can't know in
@@ -663,11 +744,12 @@ class MultiLineBreak:
                 current_line.max_width = max_width
                 for margin in self.margins:
                     max_width -= margin
+                if self._is_first_line:
+                    max_width -= self.first_line_indent
 
             if self.character_index >= len(current_fragment.characters):
                 self.character_index = 0
                 self.fragment_index += 1
-
                 continue
 
             character = current_fragment.characters[self.character_index]
@@ -680,12 +762,14 @@ class MultiLineBreak:
                 self.character_index += 1
                 if not current_line.fragments:
                     current_line.height = current_font_height * self.line_height
+                self._is_first_line = False
                 return current_line.manual_break(
                     Align.L if self.align == Align.J else self.align,
                     trailing_nl=character == NEWLINE,
                     trailing_form_feed=character == FORM_FEED,
                 )
             if current_line.width + character_width > max_width:
+                self._is_first_line = False
                 if (
                     character in BREAKING_SPACE_SYMBOLS_STR
                 ):  # must come first, always drop a current space.
@@ -710,14 +794,13 @@ class MultiLineBreak:
                     )
                 self.idx_last_forced_break = self.character_index
                 return current_line.manual_break(
-                    Align.L if self.align == Align.J else self.align
+                    Align.L if self.align == Align.J else self.align,
                 )
 
             current_line.add_character(
                 character,
                 character_width,
-                current_fragment.graphics_state,
-                current_fragment.k,
+                current_fragment,
                 self.fragment_index,
                 self.character_index,
                 current_font_height * self.line_height,
@@ -727,7 +810,8 @@ class MultiLineBreak:
             self.character_index += 1
 
         if current_line.width:
+            self._is_first_line = False
             return current_line.manual_break(
-                Align.L if self.align == Align.J else self.align
+                Align.L if self.align == Align.J else self.align,
             )
         return None

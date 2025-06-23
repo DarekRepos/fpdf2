@@ -1,7 +1,5 @@
 # Emojis, Symbols & Dingbats #
 
-[TOC]
-
 ## Emojis ##
 
 Displaying emojis requires the use of a [Unicode](Unicode.md) font file.
@@ -23,6 +21,8 @@ pdf.output("fonts_emoji_glyph.pdf")
 This code produces this PDF file: [fonts_emoji_glyph.pdf](https://github.com/py-pdf/fpdf2/blob/master/test/fonts/fonts_emoji_glyph.pdf)
 
 Another font supporting emojis is: [twemoji](https://github.com/13rac1/twemoji-color-font)
+
+!!! warning "`fpdf2` currently **does not support color emojis** (= CBDT/CBLC fonts), but we are actively working on adding support for them 🙂[ _cf._ issue #224](https://github.com/py-pdf/fpdf2/issues/224)"
 
 ## Symbols ##
 
@@ -73,4 +73,4 @@ For reference, it was built using this script: [zapfdingbats.py](zapfdingbats.py
 
 ## Fallback fonts ##
 
-If you need to mix special characters and emojis within normal text, it is possible to specify alternative fonts for FPDF to use as fallback fonts. See an exemple of use [Here](Unicode.md#fallback-fonts)
+If you need to mix special characters and emojis within normal text, it is possible to specify alternative fonts for FPDF to use as fallback fonts. See an example of use [Here](Unicode.md#fallback-fonts)

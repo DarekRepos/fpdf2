@@ -235,11 +235,14 @@ def test_cell_markdown_bleeding(tmp_path):  # issue 241
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Times", size=60)
-    pdf.cell(text="--Lorem Ipsum dolor--", markdown=True, new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(text="No Markdown", markdown=False, new_x="LMARGIN", new_y="NEXT")
     pdf.cell(text="**Lorem Ipsum dolor**", markdown=True, new_x="LMARGIN", new_y="NEXT")
+    assert pdf.font_style == ""
+    pdf.cell(text="No Markdown", markdown=False, new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(text="--Lorem Ipsum dolor--", markdown=True, new_x="LMARGIN", new_y="NEXT")
+    assert pdf.font_style == ""
     pdf.cell(text="No Markdown", markdown=False, new_x="LMARGIN", new_y="NEXT")
     pdf.cell(text="__Lorem Ipsum dolor__", markdown=True, new_x="LMARGIN", new_y="NEXT")
+    assert pdf.font_style == ""
     pdf.cell(text="No Markdown", markdown=False, new_x="LMARGIN", new_y="NEXT")
     assert_pdf_equal(pdf, HERE / "cell_markdown_bleeding.pdf", tmp_path)
 
@@ -306,14 +309,14 @@ def test_cell_curfont_leak(tmp_path):  # issue #475
     pdf.add_font("Roboto", fname=FONTS_DIR / "Roboto-Regular.ttf")
     pdf.add_font("Roboto", style="B", fname=FONTS_DIR / "Roboto-Bold.ttf")
     with pdf.local_context():
-        pdf.set_font("Roboto", "B", 10)
+        pdf.set_font("Roboto", style="B", size=10)
         pdf.cell(text="ABCDEFGH", new_x="LEFT", new_y="NEXT")
-    pdf.set_font("Roboto", "", 10)
+    pdf.set_font("Roboto", size=10)
     pdf.cell(text="IJKLMNOP", new_x="LEFT", new_y="NEXT")
     with pdf.local_context():
-        pdf.set_font("Roboto", "B", 10)
+        pdf.set_font("Roboto", style="B", size=10)
         pdf.cell(text="QRSTUVW", new_x="LEFT", new_y="NEXT")
-    pdf.set_font("Roboto", "", 10)
+    pdf.set_font("Roboto", size=10)
     pdf.cell(text="XYZ012abc,-", new_x="LEFT", new_y="NEXT")
     pdf.cell(text="3,7E-05", new_x="LEFT", new_y="NEXT")
     assert_pdf_equal(pdf, HERE / "cell_curfont_leak.pdf", tmp_path)

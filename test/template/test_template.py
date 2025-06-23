@@ -45,7 +45,7 @@ def test_template_nominal_hardcoded(tmp_path):
             # multiline is optional, so we test some items without it.
         },
         {
-            "name": "multline_text",
+            "name": "multiline_text",
             "type": "T",
             "x1": 20,
             "y1": 100,
@@ -157,13 +157,13 @@ def test_template_nominal_csv(tmp_path):
     """Same data as in docs/Templates.md
     The numeric_text tests for a regression."""
     tmpl = Template(format="A4", title="Sample Invoice")
-    tmpl.parse_csv(HERE / "mycsvfile.csv", delimiter=";")
+    tmpl.parse_csv(HERE / "template_definition.csv", delimiter=";")
     tmpl.add_page()
     tmpl["empty_fields"] = "empty"
     assert_pdf_equal(tmpl, HERE / "template_nominal_csv.pdf", tmp_path)
 
     tmpl = Template(format="A4", title="Sample Invoice")
-    tmpl.parse_csv(HERE / "mycsvfile.csv", delimiter=";", encoding="utf-8")
+    tmpl.parse_csv(HERE / "template_definition.csv", delimiter=";", encoding="utf-8")
     tmpl.add_page()
     tmpl["empty_fields"] = "empty"
     assert_pdf_equal(tmpl, HERE / "template_nominal_csv.pdf", tmp_path)
@@ -172,7 +172,7 @@ def test_template_nominal_csv(tmp_path):
 def test_template_multipage(tmp_path):
     """Testing a Template() populating several pages."""
     tmpl = Template(format="A4", title="Sample Invoice")
-    tmpl.parse_csv(HERE / "mycsvfile.csv", delimiter=";")
+    tmpl.parse_csv(HERE / "template_definition.csv", delimiter=";")
     tmpl.add_page()
     tmpl["name0"] = "Joe Doe"
     tmpl["title0"] = "Director"
@@ -579,7 +579,7 @@ def test_template_justify(tmp_path):  # issue-207
 def test_template_split_multicell():
     elements = [
         {
-            "name": "multline_text",
+            "name": "multiline_text",
             "type": "T",
             "x1": 20,
             "y1": 100,
@@ -607,7 +607,7 @@ def test_template_split_multicell():
         "diam voluptua.",
     ]
     tmpl = Template(format="A4", unit="pt", elements=elements)
-    res = tmpl.split_multicell(text, "multline_text")
+    res = tmpl.split_multicell(text, "multiline_text")
     assert res == expected
 
 
